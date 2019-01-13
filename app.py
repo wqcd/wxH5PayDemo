@@ -1,22 +1,14 @@
 #!/usr/bin/python
 # -*- encoding:utf-8 -*-
 import hashlib
-import json
-import time
 import uuid
-from urllib import parse
 import re
-
-
 from tornado.httpserver import HTTPServer
-
 import tornado.web
 from tornado.ioloop import IOLoop
-
 import os
-
 import requests
-
+from urllib import request as reqt
 from tornado.options import define, parse_command_line, options
 from tornado.web import Application
 
@@ -25,11 +17,8 @@ session = requests.session()
 session.verify = False
 
 def get_token(md5str):
-    # md5str = "abc"
 
-    # 生成一个md5对象
     m1 = hashlib.md5()
-    # 使用md5对象里的update方法md5转换
     m1.update(md5str.encode("utf-8"))
     token = m1.hexdigest()
     return token
@@ -43,6 +32,64 @@ class indexHandler(tornado.web.RequestHandler):
 class Notify_URLHandler(tornado.web.RequestHandler):
     def get(self):
         print(self.request.body)
+        xml1 = str(self.request.body, encoding='utf-8')
+        print("cml", xml1)
+        pattertn = re.compile(r'out_trade_no><!\[CDATA\[(.*?)]]></out_trade_no')
+
+        out_trade_no = pattertn.findall(xml1)[0]
+
+        print(out_trade_no)
+        appid = ''
+        mch_id = ''
+        body = ""
+
+        key = ''
+
+        nonce_str = str(uuid.uuid4()).replace('-', "")[:-3]
+
+        signA = "appid=%s&mch_id=%s&nonce_str=%s&out_trade_no=%s" % (appid, mch_id, nonce_str, out_trade_no)
+
+        print(signA)
+        strSignTmp = signA + "&key=" + key
+        sign = get_token(strSignTmp).upper()
+
+        xml = '''<xml>
+               <appid>%s</appid>
+               <mch_id>%s</mch_id>
+               <nonce_str>%s</nonce_str>
+               <out_trade_no>%s</out_trade_no>
+               <sign>%s</sign>
+            </xml>''' % (appid,mch_id,nonce_str, out_trade_no, sign)
+
+        url = 'https://api.mch.weixin.qq.com/pay/orderquery'
+        headers = {
+            'Accept-Language': 'zh-CN,en-US;q=0.8',
+            # 'Content-Type': 'application/json'
+            # "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept": "application/xml;charset=UTF-8",
+        }
+        # 我用requests 出现乱码，用urllib
+        req = reqt.Request(url, headers=headers, data=xml.encode())  # POST方法
+        #
+        page = reqt.urlopen(req).read()
+        print(page)
+        page = page.decode('utf-8')
+        #
+        print(page)
+
+        pattertn2 = re.compile(r'trade_state_desc><!\[CDATA\[(.*?)]]></trade_state_desc')
+
+        trade_state_desc = pattertn2.findall(page)[0]
+        print(trade_state_desc)
+        if trade_state_desc == '支付成功':
+            print("匹配成功")
+            #######################
+            # 这里处理自己需要的处理的
+            #######################
+
+
+
+
         self.write("")
 
     def post(self):
@@ -66,7 +113,7 @@ class Notify_wxHandler(tornado.web.RequestHandler):
         # 微信填写的备案域名
         nonce_str = str(uuid.uuid4()).replace('-', "")[:-3]
         # 生成随机字符串
-        notify_url = 'http://{}/Notify_URL/'.format(host)
+        notify_url = 'http://{}/Notify_URL'.format(host)
         # 回调函数
         wap_name = '腾讯充值'
         wap_name.encode('utf-8')
@@ -120,7 +167,6 @@ class Notify_wxHandler(tornado.web.RequestHandler):
 
 
 if __name__ == '__main__':
-    # app.listen(3000)
 
     define("port", default=8001, help="默认端口8000")
     parse_command_line()
@@ -130,7 +176,6 @@ if __name__ == '__main__':
             (r'/Notify_wx', Notify_wxHandler),
             (r'/Notify_URL', Notify_URLHandler),
         ],
-
         # 项目配置信息
         # 网页模板
         template_path=os.path.join(os.path.dirname(__file__), "templates"),
@@ -138,7 +183,6 @@ if __name__ == '__main__':
         static_path=os.path.join(os.path.dirname(__file__), "static"),
         # debug=False
     )
-
     # 部署
     server = HTTPServer(app)
     server.listen(options.port)
